@@ -1,0 +1,6 @@
+# Ignore Python bytecode cache directories anywhere in the project
+**/__pycache__/
+*.pyc
+venv/
+.vscode/
+
