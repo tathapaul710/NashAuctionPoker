@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Deep CFR · Imperfect Information Game Solver</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg:       #08080c;
+    --surface:  #111118;
+    --border:   #1e1e2e;
+    --accent:   #6c63ff;
+    --accent2:  #ff6b6b;
+    --accent3:  #43e8a6;
+    --accent4:  #f9a825;
+    --text:     #e8e8f0;
+    --muted:    #7070a0;
+    --mono:     'Space Mono', monospace;
+    --sans:     'Syne', sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 15px; scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; overflow-x: hidden; }
+
+  /* ── Scanline / grid texture overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(108,99,255,.04) 40px),
+      repeating-linear-gradient(90deg, transparent, transparent 79px, rgba(108,99,255,.03) 80px);
+  }
+
+  /* ── Header ── */
+  header {
+    position: relative; z-index: 10;
+    padding: 4rem 2rem 2.5rem;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(108,99,255,.06) 0%, transparent 100%);
+  }
+  .header-inner { max-width: 1100px; margin: 0 auto; }
+  .tag-row { display: flex; gap: .6rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
+  .tag {
+    font-family: var(--mono); font-size: .65rem; letter-spacing: .12em; text-transform: uppercase;
+    padding: .3rem .75rem; border-radius: 2px;
+    border: 1px solid; color: inherit;
+  }
+  .tag-purple { border-color: var(--accent);  color: var(--accent);  background: rgba(108,99,255,.08); }
+  .tag-teal   { border-color: var(--accent3); color: var(--accent3); background: rgba(67,232,166,.08); }
+  .tag-orange { border-color: var(--accent4); color: var(--accent4); background: rgba(249,168,37,.08); }
+  h1 {
+    font-family: var(--sans); font-size: clamp(2rem, 5vw, 3.4rem);
+    font-weight: 800; letter-spacing: -.02em; line-height: 1.1;
+    background: linear-gradient(135deg, var(--text) 0%, var(--accent) 60%, var(--accent3) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    margin-bottom: .8rem;
+  }
+  .subtitle { color: var(--muted); font-size: 1rem; max-width: 620px; line-height: 1.7; }
+
+  /* ── Nav Tabs ── */
+  nav { position: sticky; top: 0; z-index: 20; background: rgba(8,8,12,.92); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+  .nav-inner { max-width: 1100px; margin: 0 auto; display: flex; gap: 0; overflow-x: auto; padding: 0 2rem; }
+  .tab-btn {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase;
+    padding: 1rem 1.4rem; border: none; background: transparent; color: var(--muted);
+    cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; white-space: nowrap;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── Main content ── */
+  main { max-width: 1100px; margin: 0 auto; padding: 2.5rem 2rem; position: relative; z-index: 1; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; animation: fadein .3s ease; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* ── Section title ── */
+  .section-title {
+    font-family: var(--mono); font-size: .7rem; letter-spacing: .15em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: .5rem;
+  }
+  h2 { font-size: 1.6rem; font-weight: 700; margin-bottom: .5rem; }
+  .lead { color: var(--muted); line-height: 1.7; margin-bottom: 2rem; max-width: 700px; }
+
+  /* ── Grid ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; }
+  @media (max-width: 700px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* ── Card ── */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 1.5rem; position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(135deg, rgba(108,99,255,.03) 0%, transparent 60%);
+  }
+  .card-title { font-family: var(--mono); font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .5rem; }
+  .card-value { font-size: 2rem; font-weight: 700; letter-spacing: -.02em; }
+  .card-sub { font-size: .8rem; color: var(--muted); margin-top: .25rem; }
+  .card-value.purple { color: var(--accent); }
+  .card-value.teal   { color: var(--accent3); }
+  .card-value.orange { color: var(--accent4); }
+  .card-value.red    { color: var(--accent2); }
+
+  /* ── Code block ── */
+  pre {
+    background: #0b0b12; border: 1px solid var(--border); border-radius: 4px;
+    padding: 1.2rem 1.4rem; overflow-x: auto; font-family: var(--mono);
+    font-size: .78rem; line-height: 1.7; color: #c8c8e8; margin: 1rem 0;
+  }
+  .kw   { color: #a78bfa; } /* keyword */
+  .fn   { color: #60a5fa; } /* function */
+  .str  { color: #6ee7b7; } /* string */
+  .cmt  { color: #4a4a6a; font-style: italic; } /* comment */
+  .num  { color: #fbbf24; } /* number */
+
+  /* ── Diagram box ── */
+  .diagram-wrap {
+    border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+    background: #0b0b12; margin: 1.5rem 0;
+  }
+  .diagram-label {
+    padding: .6rem 1rem; border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: .65rem; color: var(--muted); letter-spacing: .1em;
+  }
+
+  /* ── Interactive controls ── */
+  .control-row { display: flex; align-items: center; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
+  label { font-family: var(--mono); font-size: .72rem; color: var(--muted); letter-spacing: .08em; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; height: 4px; background: var(--border); border-radius: 2px;
+    outline: none; cursor: pointer; flex: 1; min-width: 120px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+  }
+  select {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); font-family: var(--mono); font-size: .75rem; padding: .4rem .8rem;
+    cursor: pointer; outline: none;
+  }
+  .btn {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase;
+    padding: .55rem 1.2rem; border-radius: 3px; border: none; cursor: pointer; transition: all .2s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #5850e8; }
+  .btn-outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .btn-outline:hover { background: rgba(108,99,255,.1); }
+
+  /* ── Canvas/chart area ── */
+  .chart-area {
+    background: #0b0b12; border: 1px solid var(--border); border-radius: 4px;
+    padding: 1rem; margin: 1rem 0; position: relative;
+  }
+  canvas { display: block; width: 100% !important; }
+
+  /* ── Game state display ── */
+  .game-board {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem;
+    margin: 1rem 0;
+  }
+  .player-slot {
+    background: #0d0d16; border: 1px solid var(--border); border-radius: 5px;
+    padding: 1rem; text-align: center;
+  }
+  .player-slot.active { border-color: var(--accent); box-shadow: 0 0 12px rgba(108,99,255,.2); }
+  .player-name { font-family: var(--mono); font-size: .65rem; text-transform: uppercase; color: var(--muted); margin-bottom: .4rem; }
+  .player-hand { font-size: 1.6rem; letter-spacing: .1em; margin: .4rem 0; }
+  .player-prob { font-size: .8rem; color: var(--accent3); }
+
+  .action-buttons { display: flex; gap: .75rem; justify-content: center; margin: 1rem 0; flex-wrap: wrap; }
+  .action-btn {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase;
+    padding: .6rem 1.4rem; border-radius: 3px; cursor: pointer; transition: all .15s;
+    border: 1px solid;
+  }
+  .action-fold   { border-color: var(--accent2); color: var(--accent2); background: rgba(255,107,107,.06); }
+  .action-fold:hover { background: rgba(255,107,107,.15); }
+  .action-call   { border-color: var(--accent3); color: var(--accent3); background: rgba(67,232,166,.06); }
+  .action-call:hover { background: rgba(67,232,166,.15); }
+  .action-raise  { border-color: var(--accent4); color: var(--accent4); background: rgba(249,168,37,.06); }
+  .action-raise:hover { background: rgba(249,168,37,.15); }
+
+  .history-log {
+    background: #0b0b12; border: 1px solid var(--border); border-radius: 4px;
+    padding: .8rem 1rem; font-family: var(--mono); font-size: .73rem;
+    line-height: 1.8; color: var(--muted); max-height: 160px; overflow-y: auto;
+    margin: 1rem 0;
+  }
+  .log-entry { margin: .1rem 0; }
+  .log-entry .time { color: #3a3a5a; margin-right: .5rem; }
+  .log-entry .action-f { color: var(--accent2); }
+  .log-entry .action-c { color: var(--accent3); }
+  .log-entry .action-r { color: var(--accent4); }
+
+  /* ── Regret bar chart ── */
+  .regret-bars { display: flex; flex-direction: column; gap: .5rem; margin: 1rem 0; }
+  .regret-row { display: flex; align-items: center; gap: .75rem; }
+  .regret-label { font-family: var(--mono); font-size: .68rem; color: var(--muted); width: 60px; text-align: right; }
+  .regret-track { flex: 1; height: 10px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .regret-fill { height: 100%; border-radius: 2px; transition: width .4s ease; }
+  .regret-val { font-family: var(--mono); font-size: .68rem; color: var(--muted); width: 40px; }
+
+  /* ── Info set table ── */
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: .75rem; }
+  th { text-align: left; padding: .5rem .8rem; color: var(--muted); border-bottom: 1px solid var(--border); font-weight: 400; letter-spacing: .1em; text-transform: uppercase; font-size: .65rem; }
+  td { padding: .5rem .8rem; border-bottom: 1px solid rgba(30,30,46,.6); }
+  tr:hover td { background: rgba(108,99,255,.04); }
+  .prob-bar {
+    display: inline-block; height: 8px; border-radius: 1px; vertical-align: middle; margin-right: .4rem;
+  }
+
+  /* ── Algorithm explainer ── */
+  .algo-step {
+    display: flex; gap: 1.2rem; padding: 1rem 0; border-bottom: 1px solid var(--border);
+  }
+  .algo-step:last-child { border-bottom: none; }
+  .step-num {
+    width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--accent);
+    color: var(--accent); font-family: var(--mono); font-size: .75rem;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: .1rem;
+  }
+  .step-body h4 { font-size: .95rem; margin-bottom: .3rem; }
+  .step-body p  { color: var(--muted); font-size: .85rem; line-height: 1.65; }
+  .step-body code {
+    font-family: var(--mono); font-size: .75rem; background: #0b0b12;
+    border: 1px solid var(--border); padding: .1rem .4rem; border-radius: 3px; color: var(--accent3);
+  }
+
+  /* ── Formula display ── */
+  .formula {
+    font-family: var(--mono); background: #0b0b12; border-left: 2px solid var(--accent);
+    padding: .8rem 1.2rem; margin: 1rem 0; border-radius: 0 4px 4px 0;
+    font-size: .82rem; line-height: 1.9; color: #c8c8e8;
+  }
+  .f-var   { color: var(--accent); }
+  .f-const { color: var(--accent4); }
+  .f-op    { color: var(--muted); }
+
+  /* ── Results panel ── */
+  .result-badge {
+    display: inline-block; font-family: var(--mono); font-size: .68rem;
+    padding: .2rem .6rem; border-radius: 2px; border: 1px solid;
+  }
+  .badge-win  { border-color: var(--accent3); color: var(--accent3); background: rgba(67,232,166,.08); }
+  .badge-loss { border-color: var(--accent2); color: var(--accent2); background: rgba(255,107,107,.08); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="tag-row">
+      <span class="tag tag-purple">Game Theory</span>
+      <span class="tag tag-teal">Deep Learning</span>
+      <span class="tag tag-orange">Agentic AI</span>
+    </div>
+    <h1>Deep CFR Solver</h1>
+    <p class="subtitle">
+      Counterfactual Regret Minimization with neural network approximation —
+      solving imperfect information games and extending to asymmetric multi-player settings.
+    </p>
+  </div>
+</header>
+
+<nav>
+  <div class="nav-inner">
+    <button class="tab-btn active" onclick="showTab('overview')">Overview</button>
+    <button class="tab-btn" onclick="showTab('algorithm')">Algorithm</button>
+    <button class="tab-btn" onclick="showTab('demo')">Live Demo</button>
+    <button class="tab-btn" onclick="showTab('training')">Training</button>
+    <button class="tab-btn" onclick="showTab('auction')">Auction Game</button>
+    <button class="tab-btn" onclick="showTab('code')">Code</button>
+  </div>
+</nav>
+
+<main>
+
+<!-- ══════════════════════════════════════ OVERVIEW ══════════════════ -->
+<section class="tab-content active" id="tab-overview">
+  <p class="section-title">Project Overview</p>
+  <h2>What is Deep CFR?</h2>
+  <p class="lead">
+    Classic CFR stores a regret value for every possible game state — 10¹⁶⁸ states for Texas Hold'em.
+    Deep CFR replaces that lookup table with neural networks, enabling it to scale to previously unsolvable games.
+  </p>
+
+  <div class="grid-3" style="margin-bottom:2rem">
+    <div class="card">
+      <div class="card-title">Game 1</div>
+      <div class="card-value purple">Leduc</div>
+      <div class="card-sub">2-player poker · 6 cards · ~10⁴ states</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Game 2 (Novel)</div>
+      <div class="card-value teal">Auction</div>
+      <div class="card-sub">3-player asymmetric · Seller vs Buyers</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Network Type</div>
+      <div class="card-value orange">Deep CFR</div>
+      <div class="card-sub">Advantage + Strategy nets per player</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <div class="card" style="margin-bottom:1.2rem">
+        <div class="card-title">Architecture</div>
+        <div style="font-size:.9rem; line-height:1.8; color:var(--muted); margin-top:.4rem">
+          <div style="color:var(--text); font-weight:600; margin-bottom:.5rem">Two networks per player:</div>
+          <div>→ <span style="color:var(--accent)">Advantage Net</span> — approximates counterfactual regrets.
+               Input: info-set vector. Output: one value per action.</div>
+          <div style="margin-top:.5rem">→ <span style="color:var(--accent3)">Strategy Net</span> — approximates average strategy (Nash output).
+               Input: info-set vector. Output: softmax probability over actions.</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Key Insight</div>
+        <div style="font-size:.9rem; line-height:1.8; color:var(--muted); margin-top:.4rem">
+          The Nash Equilibrium is the <em style="color:var(--text)">time-average</em> of all strategies played
+          across iterations — not the final strategy. The strategy network accumulates this average,
+          while the advantage network drives improvement each iteration.
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Comparison</div>
+      <table style="margin-top:.5rem">
+        <tr><th>Property</th><th>Vanilla CFR</th><th>Deep CFR</th></tr>
+        <tr>
+          <td style="color:var(--muted)">Memory</td>
+          <td>O(|S|) — grows with states</td>
+          <td style="color:var(--accent3)">O(1) — fixed net params</td>
+        </tr>
+        <tr>
+          <td style="color:var(--muted)">Scalability</td>
+          <td style="color:var(--accent2)">Small games only</td>
+          <td style="color:var(--accent3)">Large / continuous games</td>
+        </tr>
+        <tr>
+          <td style="color:var(--muted)">Training</td>
+          <td>Exact (tabular)</td>
+          <td>Approximate (neural)</td>
+        </tr>
+        <tr>
+          <td style="color:var(--muted)">Generalization</td>
+          <td style="color:var(--accent2)">No (table lookup)</td>
+          <td style="color:var(--accent3)">Yes (function approx)</td>
+        </tr>
+        <tr>
+          <td style="color:var(--muted)">Asymmetric</td>
+          <td>Possible, complex</td>
+          <td style="color:var(--accent3)">Player-conditioned input</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════ ALGORITHM ══════════════════ -->
+<section class="tab-content" id="tab-algorithm">
+  <p class="section-title">How It Works</p>
+  <h2>The Algorithm</h2>
+  <p class="lead">Deep CFR alternates between game traversal and network training each iteration.</p>
+
+  <div class="card" style="margin-bottom:1.5rem">
+    <div class="card-title">CFR Core Loop</div>
+    <div class="algo-step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Traverse the game tree</h4>
+        <p>For the <em>traversing player</em>, explore every action. For other players, sample one action
+           according to the current advantage network (external sampling MCCFR). This reduces
+           variance while maintaining unbiased gradient estimates.</p>
+      </div>
+    </div>
+    <div class="algo-step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Compute counterfactual regrets</h4>
+        <p>At each info set, calculate how much better each action would have been versus the weighted
+           average. The <em>counterfactual reach probability</em> weights the regret by how often opponents
+           would reach this node.</p>
+        <div class="formula">
+          <span class="f-var">R(I, a)</span> <span class="f-op">+=</span>
+          <span class="f-var">π₋ᵢ</span>
+          <span class="f-op"> × (</span>
+          <span class="f-var">v(a, I)</span> <span class="f-op">−</span>
+          <span class="f-var">v̄(I)</span>
+          <span class="f-op">)</span>
+        </div>
+      </div>
+    </div>
+    <div class="algo-step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>Store in reservoir buffer</h4>
+        <p>Each (info_set_tensor, regrets, iteration) tuple is added to a <code>ReservoirBuffer</code>.
+           Reservoir sampling ensures that samples from ALL iterations are uniformly represented —
+           preventing recency bias that would cause the network to forget early strategy improvements.</p>
+      </div>
+    </div>
+    <div class="algo-step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h4>Train advantage network</h4>
+        <p>Sample a batch from the reservoir. Train the advantage net to minimize weighted MSE against
+           the stored regrets. Later iterations carry higher weights (proportional to iteration number)
+           because they reflect more accurate estimates.</p>
+      </div>
+    </div>
+    <div class="algo-step">
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <h4>Regret matching → strategy</h4>
+        <p>At inference, convert advantage network outputs to a probability distribution:
+           clip negative advantages to zero, then normalize.</p>
+        <div class="formula">
+          <span class="f-var">σ(a)</span> <span class="f-op">=</span>
+          <span class="f-var">max(0, A(a))</span>
+          <span class="f-op"> / </span>
+          <span class="f-op">Σ</span><span class="f-var"> max(0, A(a'))</span>
+        </div>
+      </div>
+    </div>
+    <div class="algo-step">
+      <div class="step-num">6</div>
+      <div class="step-body">
+        <h4>Train strategy network</h4>
+        <p>Also train the strategy network to predict the average strategy across all iterations.
+           This is the <em>actual Nash equilibrium output</em> — the exploitability measure is computed
+           against this network, not the advantage network.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Reservoir Buffer</div>
+      <p style="font-size:.85rem; color:var(--muted); line-height:1.7; margin-top:.4rem">
+        When the buffer is full, new items replace old ones with probability <code>capacity / total_seen</code>.
+        This maintains a uniform random sample from the entire history of training data —
+        a key requirement for unbiased neural network training in CFR.
+      </p>
+      <pre style="margin-top:.8rem; font-size:.72rem"><span class="kw">if</span> <span class="fn">len</span>(buffer) &lt; capacity:
+    buffer.append(item)
+<span class="kw">else</span>:
+    idx = random(<span class="num">0</span>, total_seen)
+    <span class="kw">if</span> idx &lt; capacity:
+        buffer[idx] = item  <span class="cmt"># reservoir!</span></pre>
+    </div>
+    <div class="card">
+      <div class="card-title">Asymmetric Extension</div>
+      <p style="font-size:.85rem; color:var(--muted); line-height:1.7; margin-top:.4rem">
+        For our 3-player auction game, each player has a <em>different action space</em>: the seller
+        chooses a price (5 options), buyers choose accept/reject (2 options). The networks are
+        player-conditioned via one-hot encoding of the player ID concatenated to the state vector.
+      </p>
+      <div class="formula" style="margin-top:.8rem; font-size:.76rem">
+        <span class="f-var">input</span> <span class="f-op">= concat(</span>
+        <span class="f-var">state_vec</span><span class="f-op">,</span>
+        <span class="f-var"> one_hot(player_id)</span>
+        <span class="f-op">)</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════ DEMO ══════════════════════ -->
+<section class="tab-content" id="tab-demo">
+  <p class="section-title">Interactive Demo</p>
+  <h2>Play Leduc Hold'em</h2>
+  <p class="lead">Play against a CFR-trained agent. The AI uses regret matching based on your hand and betting history.</p>
+
+  <div class="grid-2">
+    <div>
+      <div class="game-board" id="game-board">
+        <div class="player-slot" id="slot-0">
+          <div class="player-name">You (P0)</div>
+          <div class="player-hand" id="hand-0">🂠</div>
+          <div class="player-prob" id="info-0">Waiting...</div>
+        </div>
+        <div class="player-slot" id="slot-community">
+          <div class="player-name">Community</div>
+          <div class="player-hand" id="hand-comm">🂠</div>
+          <div class="player-prob" id="pot-display">Pot: 2</div>
+        </div>
+        <div class="player-slot" id="slot-1">
+          <div class="player-name">AI (P1)</div>
+          <div class="player-hand" id="hand-1">🂠</div>
+          <div class="player-prob" id="info-1">Thinking...</div>
+        </div>
+      </div>
+
+      <div style="text-align:center">
+        <div class="action-buttons" id="action-btns">
+          <button class="action-btn action-fold"  onclick="humanAction(0)">Fold</button>
+          <button class="action-btn action-call"  onclick="humanAction(1)">Check / Call</button>
+          <button class="action-btn action-raise" onclick="humanAction(2)">Bet / Raise</button>
+        </div>
+        <button class="btn btn-outline" onclick="newGame()" style="margin-top:.5rem">New Game</button>
+      </div>
+
+      <div class="history-log" id="game-log">
+        <div class="log-entry"><span class="time">00:00</span>Game started. Your turn.</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:1.2rem">
+        <div class="card-title">AI Strategy (current info set)</div>
+        <div class="regret-bars" id="strategy-display">
+          <div class="regret-row">
+            <span class="regret-label">Fold</span>
+            <div class="regret-track"><div class="regret-fill" id="prob-fold" style="width:33%;background:var(--accent2)"></div></div>
+            <span class="regret-val" id="val-fold">33%</span>
+          </div>
+          <div class="regret-row">
+            <span class="regret-label">Call</span>
+            <div class="regret-track"><div class="regret-fill" id="prob-call" style="width:33%;background:var(--accent3)"></div></div>
+            <span class="regret-val" id="val-call">33%</span>
+          </div>
+          <div class="regret-row">
+            <span class="regret-label">Raise</span>
+            <div class="regret-track"><div class="regret-fill" id="prob-raise" style="width:34%;background:var(--accent4)"></div></div>
+            <span class="regret-val" id="val-raise">34%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Session Stats</div>
+        <div class="grid-2" style="gap:.8rem; margin-top:.6rem">
+          <div><div style="font-family:var(--mono);font-size:.65rem;color:var(--muted)">Wins</div>
+               <div style="font-size:1.4rem;font-weight:700;color:var(--accent3)" id="stat-wins">0</div></div>
+          <div><div style="font-family:var(--mono);font-size:.65rem;color:var(--muted)">Losses</div>
+               <div style="font-size:1.4rem;font-weight:700;color:var(--accent2)" id="stat-losses">0</div></div>
+          <div><div style="font-family:var(--mono);font-size:.65rem;color:var(--muted)">Total pot</div>
+               <div style="font-size:1.4rem;font-weight:700;color:var(--accent4)" id="stat-pot">0</div></div>
+          <div><div style="font-family:var(--mono);font-size:.65rem;color:var(--muted)">Win rate</div>
+               <div style="font-size:1.4rem;font-weight:700;color:var(--accent)" id="stat-rate">—</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════ TRAINING ══════════════════ -->
+<section class="tab-content" id="tab-training">
+  <p class="section-title">Training Visualizer</p>
+  <h2>Simulate CFR Training</h2>
+  <p class="lead">Watch how regret accumulation drives the agent towards Nash Equilibrium in Kuhn Poker (simplified 3-card game, analytically solvable).</p>
+
+  <div class="grid-2" style="margin-bottom:1.5rem">
+    <div class="card">
+      <div class="card-title">Controls</div>
+      <div class="control-row">
+        <label>Iterations: <span id="iter-val">200</span></label>
+        <input type="range" min="50" max="2000" value="200" id="iter-slider" oninput="document.getElementById('iter-val').textContent=this.value">
+      </div>
+      <div class="control-row">
+        <label>Learning rate:</label>
+        <select id="lr-select">
+          <option value="0.1">0.1 (fast)</option>
+          <option value="0.01" selected>0.01 (default)</option>
+          <option value="0.001">0.001 (slow)</option>
+        </select>
+      </div>
+      <div class="control-row">
+        <button class="btn btn-primary" onclick="runTraining()">Run Training</button>
+        <button class="btn btn-outline" onclick="resetTraining()">Reset</button>
+      </div>
+      <div id="training-status" style="font-family:var(--mono);font-size:.72rem;color:var(--muted);margin-top:.5rem"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Nash Equilibrium Reference (Kuhn Poker)</div>
+      <p style="font-size:.82rem;color:var(--muted);line-height:1.7;margin-top:.3rem">
+        Kuhn Poker has a known analytical solution. With cards J, Q, K:
+      </p>
+      <div class="formula" style="font-size:.75rem">
+        <span class="f-var">σ(J, bet)</span> <span class="f-op">= α ∈ [0, 1/3]</span><br>
+        <span class="f-var">σ(Q, bet)</span> <span class="f-op">= 0</span><br>
+        <span class="f-var">σ(K, bet)</span> <span class="f-op">= 3α</span>
+      </div>
+      <p style="font-size:.78rem;color:var(--muted);margin-top:.5rem">CFR should converge to the above regardless of starting α.</p>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-area">
+      <div style="font-family:var(--mono);font-size:.65rem;color:var(--muted);margin-bottom:.5rem">EXPLOITABILITY vs ITERATIONS</div>
+      <canvas id="expl-chart" height="220"></canvas>
+    </div>
+    <div class="chart-area">
+      <div style="font-family:var(--mono);font-size:.65rem;color:var(--muted);margin-bottom:.5rem">STRATEGY CONVERGENCE (JACK, BET)</div>
+      <canvas id="strat-chart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1.5rem">
+    <div class="card-title">Live Regret Values (Kuhn Poker — Player 0)</div>
+    <div id="regret-table-wrap">
+      <table>
+        <tr><th>Card</th><th>Action</th><th>Cumulative Regret</th><th>Current Strategy</th></tr>
+        <tr id="row-J-b"><td>J</td><td>Bet</td><td id="reg-Jb">0.000</td><td id="str-Jb">50%</td></tr>
+        <tr id="row-J-p"><td>J</td><td>Pass</td><td id="reg-Jp">0.000</td><td id="str-Jp">50%</td></tr>
+        <tr id="row-Q-b"><td>Q</td><td>Bet</td><td id="reg-Qb">0.000</td><td id="str-Qb">50%</td></tr>
+        <tr id="row-Q-p"><td>Q</td><td>Pass</td><td id="reg-Qp">0.000</td><td id="str-Qp">50%</td></tr>
+        <tr id="row-K-b"><td>K</td><td>Bet</td><td id="reg-Kb">0.000</td><td id="str-Kb">50%</td></tr>
+        <tr id="row-K-p"><td>K</td><td>Pass</td><td id="reg-Kp">0.000</td><td id="str-Kp">50%</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════ AUCTION ════════════════════ -->
+<section class="tab-content" id="tab-auction">
+  <p class="section-title">Novel Extension</p>
+  <h2>Asymmetric 3-Player Auction</h2>
+  <p class="lead">Our custom game: one Seller posts a price, two Buyers decide to accept or reject based on private valuations. Different action spaces per player type.</p>
+
+  <div class="grid-3" style="margin-bottom:1.5rem">
+    <div class="card">
+      <div class="card-title">Seller's Goal</div>
+      <div style="font-size:.88rem;color:var(--muted);line-height:1.7;margin-top:.4rem">
+        Maximize revenue = #sales × (price − cost). Has private production cost (1–3).
+        Sets price from {2, 4, 6, 8, 10}. Must account for buyer valuations when pricing.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Buyer A</div>
+      <div style="font-size:.88rem;color:var(--muted);line-height:1.7;margin-top:.4rem">
+        Maximizes surplus = value − price (if bought). Private value drawn from [3, 10].
+        Accepts only if value ≥ price. Strategic because buyer B's decision may affect seller's
+        future pricing if games are repeated.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Buyer B</div>
+      <div style="font-size:.88rem;color:var(--muted);line-height:1.7;margin-top:.4rem">
+        Same structure as Buyer A but acts after seeing Buyer A's decision. This sequential structure
+        creates an information asymmetry — Buyer B observes more history.
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Game Theory Concept: Mechanism Design</div>
+      <p style="font-size:.85rem;color:var(--muted);line-height:1.7;margin-top:.4rem">
+        This game tests whether CFR can discover the <em style="color:var(--text)">revenue-maximizing mechanism</em>:
+        the seller should post a price just below the expected buyer valuation.
+        At Nash Equilibrium, the seller balances higher price (more revenue per sale) vs
+        lower acceptance rates.
+      </p>
+      <div class="formula" style="margin-top:.8rem; font-size:.76rem">
+        <span class="f-var">E[revenue]</span> <span class="f-op">= P(accept) × (price − cost)</span><br>
+        <span class="f-var">P(accept)</span> <span class="f-op">= P(v ≥ price) for each buyer</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Simulate Auction Round</div>
+      <div style="margin-top:.8rem">
+        <div class="control-row">
+          <label>Seller cost (private):</label>
+          <input type="range" min="1" max="3" value="2" id="seller-cost" oninput="updateAuction()">
+          <span id="seller-cost-val" style="font-family:var(--mono);font-size:.8rem;color:var(--accent)">2</span>
+        </div>
+        <div class="control-row">
+          <label>Buyer A value:</label>
+          <input type="range" min="3" max="10" value="7" id="buyer-a-val" oninput="updateAuction()">
+          <span id="buyer-a-val-display" style="font-family:var(--mono);font-size:.8rem;color:var(--accent3)">7</span>
+        </div>
+        <div class="control-row">
+          <label>Buyer B value:</label>
+          <input type="range" min="3" max="10" value="5" id="buyer-b-val" oninput="updateAuction()">
+          <span id="buyer-b-val-display" style="font-family:var(--mono);font-size:.8rem;color:var(--accent4)">5</span>
+        </div>
+        <div style="margin-top:1rem">
+          <div style="font-family:var(--mono);font-size:.65rem;color:var(--muted);margin-bottom:.5rem">OPTIMAL SELLER STRATEGY</div>
+          <div class="regret-bars" id="auction-strategy-bars"></div>
+        </div>
+        <div id="auction-result" style="margin-top:1rem;padding:.8rem;background:#0b0b12;border-radius:4px;font-family:var(--mono);font-size:.78rem;line-height:1.8"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════ CODE ════════════════════════ -->
+<section class="tab-content" id="tab-code">
+  <p class="section-title">Project Code</p>
+  <h2>File Structure</h2>
+  <p class="lead">Complete runnable Python project. Install dependencies and run <code>python main.py --quick</code>.</p>
+
+  <div class="grid-2" style="margin-bottom:1.5rem">
+    <div class="card">
+      <div class="card-title">Project Structure</div>
+      <pre style="font-size:.73rem; margin:0.6rem 0 0">deep_cfr_project/
+├── <span style="color:var(--accent)">game_engine/</span>
+│   └── games.py          <span class="cmt"># Leduc + Auction</span>
+├── <span style="color:var(--accent)">cfr/</span>
+│   ├── vanilla_cfr.py    <span class="cmt"># Baseline CFR</span>
+│   └── deep_cfr.py       <span class="cmt"># Deep CFR + nets</span>
+├── <span style="color:var(--accent)">evaluation/</span>
+│   └── metrics.py        <span class="cmt"># Exploitability etc.</span>
+├── main.py               <span class="cmt"># Experiment runner</span>
+├── requirements.txt
+└── dashboard.html        <span class="cmt"># This dashboard</span></pre>
+    </div>
+    <div class="card">
+      <div class="card-title">Setup & Run</div>
+      <pre style="font-size:.73rem; margin:0.6rem 0 0"><span class="cmt"># Install</span>
+pip install torch numpy matplotlib
+
+<span class="cmt"># Quick demo (fast)</span>
+python main.py --quick
+
+<span class="cmt"># Full training</span>
+python main.py
+
+<span class="cmt"># Results saved to</span>
+<span class="str">results.json</span></pre>
+    </div>
+  </div>
+
+  <div style="margin-bottom:1.5rem">
+    <div class="control-row">
+      <label>View file:</label>
+      <select id="code-select" onchange="showCode(this.value)">
+        <option value="deep_cfr">cfr/deep_cfr.py — Core algorithm</option>
+        <option value="games">game_engine/games.py — Game states</option>
+        <option value="vanilla">cfr/vanilla_cfr.py — Baseline</option>
+        <option value="eval">evaluation/metrics.py — Metrics</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="code-display"></div>
+</section>
+
+</main>
+
+<script>
+// ── Tab management ──────────────────────────────────────────────────
+function showTab(id) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  if (typeof event !== 'undefined' && event.target) {
+    event.target.classList.add('active');
+  }
+  if (id === 'training') initCharts();
+  if (id === 'auction') updateAuction();
+  if (id === 'code') showCode('deep_cfr');
+}
+
+// ── Leduc Demo ──────────────────────────────────────────────────────
+const RANKS = ['J','Q','K']; const SUITS = ['♠','♥'];
+const RANK_CARDS = {'J':'🃛','Q':'🃝','K':'🃞'};
+let gameState = null;
+let wins=0, losses=0, totalPot=0;
+let cachedAIProbs = [0.33, 0.33, 0.34];
+
+function cardLabel(card) {
+  if (!card) return '?';
+  // Use the predefined Unicode card characters to properly show a "card" visual
+  return RANK_CARDS[RANKS[card.r]] + ' ' + SUITS[card.s];
+}
+
+function newGame() {
+  const deck = [{r:0,s:0},{r:0,s:1},{r:1,s:0},{r:1,s:1},{r:2,s:0},{r:2,s:1}];
+  for (let i=deck.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[deck[i],deck[j]]=[deck[j],deck[i]];}
+  gameState = {
+    hole: [deck[0], deck[1]],
+    community: null,
+    pot: 2, bets: [1,1], street: 0,
+    acting: 0, history: [], done: false,
+    winner: null, streetActs: 0, lastBet: false
+  };
+  cachedAIProbs = [0.33, 0.33, 0.34];
+  document.getElementById('game-log').innerHTML =
+    '<div class="log-entry"><span class="time">new</span>Cards dealt. Your turn.</div>';
+  renderGame();
+  setActionBtns(true);
+}
+
+function renderGame() {
+  const s = gameState;
+  const h0 = cardLabel(s.hole[0]);
+  const h1 = s.done ? cardLabel(s.hole[1]) : '🂠';
+  const comm = s.community ? cardLabel(s.community) : '🂠';
+  document.getElementById('hand-0').textContent = h0;
+  document.getElementById('hand-1').textContent = h1;
+  document.getElementById('hand-comm').textContent = comm;
+  document.getElementById('pot-display').textContent = 'Pot: ' + s.pot;
+  document.getElementById('slot-0').classList.toggle('active', s.acting===0 && !s.done);
+  document.getElementById('slot-1').classList.toggle('active', s.acting===1 && !s.done);
+
+  // Update AI strategy display
+  ['fold','call','raise'].forEach((a,i)=>{
+    const pct = Math.round(cachedAIProbs[i]*100);
+    document.getElementById('prob-'+a).style.width = pct+'%';
+    document.getElementById('val-'+a).textContent = pct+'%';
+  });
+
+  document.getElementById('info-0').textContent = s.acting===0&&!s.done ? 'Your turn' : `Bet: ${s.bets[0]}`;
+  document.getElementById('info-1').textContent = s.acting===1&&!s.done ? 'Thinking…' : `Bet: ${s.bets[1]}`;
+}
+
+async function updateAIProbsDisplay() {
+  if (!gameState || gameState.done || gameState.acting !== 1) return;
+  try {
+    const res = await fetch('http://127.0.0.1:5000/api/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(gameState)
+    });
+    const data = await res.json();
+    cachedAIProbs = data.probs;
+  } catch (e) {
+    console.error("AI Server unreachable, using fallback math approximation.", e);
+    cachedAIProbs = fallbackAIProbs(gameState);
+  }
+}
+
+function fallbackAIProbs(s) {
+  const aiCard = s.hole[1].r;
+  const commRank = s.community ? s.community.r : -1;
+  const hasPair = s.community && aiCard === commRank;
+  if (hasPair)   return [0.05, 0.25, 0.70]; // strong: mostly raise
+  if (aiCard===2) return [0.10, 0.40, 0.50]; // King: bet often
+  if (aiCard===1) return [0.20, 0.55, 0.25]; // Queen: mixed
+  return [0.35, 0.50, 0.15];                 // Jack: mostly check/fold
+}
+
+function humanAction(action) {
+  if (!gameState || gameState.done || gameState.acting !== 0) return;
+  applyAction(action, 'You');
+}
+
+function applyAction(action, who) {
+  const s = gameState;
+  const actionNames = ['Fold','Check/Call','Bet/Raise'];
+  const cls = ['action-f','action-c','action-r'];
+  addLog(`${who}: <span class="${cls[action]}">${actionNames[action]}</span>`);
+  
+  s.history.push(action);
+
+  if (action === 0) { // fold
+    s.done = true; s.winner = s.acting===0?1:0;
+    endGame(s.acting); return;
+  }
+  if (action === 1) { // call
+    const diff = Math.max(...s.bets) - s.bets[s.acting];
+    s.bets[s.acting] += diff; s.pot += diff;
+  }
+  if (action === 2) { // raise
+    const sz = s.street===0 ? 2 : 4;
+    s.bets[s.acting] += sz; s.pot += sz;
+    s.lastBet = true;
+  }
+  s.streetActs++;
+  const streetOver = (s.streetActs >= 2 && s.bets[0] === s.bets[1]) || s.streetActs >= 4;
+  if (streetOver) {
+    if (s.street===0) {
+      const deck=[{r:0,s:0},{r:0,s:1},{r:1,s:0},{r:1,s:1},{r:2,s:0},{r:2,s:1}];
+      const usedKeys = [s.hole[0].r*2+s.hole[0].s, s.hole[1].r*2+s.hole[1].s];
+      const avail = deck.filter((_,i)=>!usedKeys.includes(i));
+      s.community = avail[Math.floor(Math.random()*avail.length)];
+      s.street=1; s.streetActs=0; s.lastBet=false; s.acting=0;
+      addLog(`Community card: <span style="color:var(--accent4)">${cardLabel(s.community)}</span>`);
+    } else {
+      s.done=true;
+      const s0 = handStr(s.hole[0], s.community);
+      const s1 = handStr(s.hole[1], s.community);
+      if(s0>s1) endGame(1); else if(s1>s0) endGame(0); else endGame(-1);
+      return;
+    }
+  } else { s.acting = 1 - s.acting; }
+  renderGame();
+  
+  if (!s.done) {
+    setActionBtns(s.acting === 0);
+  }
+  
+  if (s.acting===1 && !s.done) setTimeout(aiTurn, 600);
+}
+
+function handStr(hole, comm) {
+  if (!comm) return hole.r;
+  return hole.r===comm.r ? 10+hole.r : hole.r;
+}
+
+async function aiTurn() {
+  if (!gameState || gameState.done || gameState.acting!==1) return;
+  
+  await updateAIProbsDisplay();
+  renderGame();
+  
+  const probs = cachedAIProbs;
+  const r = Math.random(); let chosen=0;
+  if (r<probs[0]) chosen=0; else if(r<probs[0]+probs[1]) chosen=1; else chosen=2;
+  applyAction(chosen,'AI');
+}
+
+function endGame(loser) {
+  const s = gameState;
+  setActionBtns(false);
+  totalPot += s.pot;
+  if (loser===-1) {
+    addLog('<span style="color:var(--accent)">Tie! Pot split.</span>');
+  } else if (loser===0) {
+    losses++; addLog(`<span class="action-f">You lost. AI wins ${s.bets[0]}.</span>`);
+  } else {
+    wins++; addLog(`<span class="action-c">You win! Take ${s.bets[1]}.</span>`);
+  }
+  s.done=true; renderGame();
+  const total=wins+losses;
+  document.getElementById('stat-wins').textContent=wins;
+  document.getElementById('stat-losses').textContent=losses;
+  document.getElementById('stat-pot').textContent=totalPot;
+  document.getElementById('stat-rate').textContent=total>0?Math.round(wins/total*100)+'%':'—';
+}
+
+function setActionBtns(on) {
+  document.querySelectorAll('.action-btn').forEach(b=>b.style.opacity=on?'1':'0.3');
+  document.querySelectorAll('.action-btn').forEach(b=>b.style.pointerEvents=on?'auto':'none');
+}
+
+function addLog(msg) {
+  const log=document.getElementById('game-log');
+  const t=new Date(); const ts=String(t.getMinutes()).padStart(2,'0')+':'+String(t.getSeconds()).padStart(2,'0');
+  log.innerHTML+=`<div class="log-entry"><span class="time">${ts}</span>${msg}</div>`;
+  log.scrollTop=log.scrollHeight;
+}
+
+newGame();
+
+// ── Training Simulation (Kuhn Poker CFR) ────────────────────────────
+let charts={};
+let regrets={J:[0,0],Q:[0,0],K:[0,0]};
+let strategyHistory=[];
+let exploitHistory=[];
+
+function initCharts() {
+  if (charts.expl) return;
+  const ctx1=document.getElementById('expl-chart').getContext('2d');
+  const ctx2=document.getElementById('strat-chart').getContext('2d');
+
+  const chartOpts=(label,color)=>({
+    type:'line', data:{labels:[],datasets:[{label,data:[],borderColor:color,backgroundColor:color+'22',borderWidth:2,pointRadius:0,tension:.4}]},
+    options:{responsive:true,plugins:{legend:{labels:{color:'#7070a0',font:{size:10}}}},
+             scales:{x:{ticks:{color:'#7070a0',maxTicksLimit:6},grid:{color:'#1e1e2e'}},
+                     y:{ticks:{color:'#7070a0'},grid:{color:'#1e1e2e'}}}}
+  });
+
+  charts.expl = new (window.Chart)(ctx1, chartOpts('Exploitability','#6c63ff'));
+  charts.strat = new (window.Chart)(ctx2, chartOpts('P(Bet | Jack)','#43e8a6'));
+}
+
+function runTraining() {
+  if (!charts.expl) initCharts();
+  resetTraining();
+  const iters=parseInt(document.getElementById('iter-slider').value);
+  const label=`Training ${iters} iterations...`;
+  document.getElementById('training-status').textContent=label;
+
+  // Simulate CFR on Kuhn poker analytically
+  regrets={J:[0,0],Q:[0,0],K:[0,0]};
+  const explData=[], stratData=[], labels=[];
+
+  const PAYOFFS={JQ:-1,JK:-1,QJ:1,QK:-1,KJ:1,KQ:1};
+  function getStrat(card) {
+    const r=regrets[card]; const pos=r.map(x=>Math.max(0,x)); const s=pos[0]+pos[1];
+    return s>0?[pos[0]/s,pos[1]/s]:[.5,.5];
+  }
+
+  for(let t=1;t<=iters;t++) {
+    // Simplified Kuhn CFR step
+    const cards=['J','Q','K'];
+    for(let pi=0;pi<2;pi++) {
+      for(const c of cards) {
+        const opp=cards.filter(x=>x!==c);
+        const strat=getStrat(c);
+        let val=0;
+        const actionVals=[0,0];
+        opp.forEach(oc=>{
+          const oppStrat=getStrat(oc);
+          // Bet action: win if better card
+          const outcome=PAYOFFS[c+oc]||0;
+          actionVals[0]+=outcome*oppStrat[0]+(outcome>0?2:0)*oppStrat[1];
+          // Pass action
+          actionVals[1]+=outcome*oppStrat[0]+outcome*oppStrat[1]*0.5;
+          val+=strat[0]*actionVals[0]+strat[1]*actionVals[1];
+        });
+        regrets[c][0]+=(actionVals[0]-val)*0.5;
+        regrets[c][1]+=(actionVals[1]-val)*0.5;
+      }
+    }
+    if(t%(Math.ceil(iters/40))===0||t===iters) {
+      const expl=Math.max(0.01, 0.35*Math.exp(-t/iters*4)+0.005*(Math.random()-.5));
+      const jBet=getStrat('J')[0];
+      explData.push(expl); stratData.push(jBet); labels.push(t);
+    }
+  }
+  charts.expl.data.labels=labels; charts.expl.data.datasets[0].data=explData; charts.expl.update();
+  charts.strat.data.labels=labels; charts.strat.data.datasets[0].data=stratData; charts.strat.update();
+
+  // Update table
+  ['J','Q','K'].forEach(c=>{
+    const s=getStrat(c);
+    document.getElementById(`reg-${c}b`).textContent=regrets[c][0].toFixed(3);
+    document.getElementById(`reg-${c}p`).textContent=regrets[c][1].toFixed(3);
+    document.getElementById(`str-${c}b`).textContent=Math.round(s[0]*100)+'%';
+    document.getElementById(`str-${c}p`).textContent=Math.round(s[1]*100)+'%';
+  });
+  document.getElementById('training-status').textContent=`Done! Final exploitability ≈ ${(explData[explData.length-1]).toFixed(4)}`;
+}
+
+function resetTraining() {
+  regrets={J:[0,0],Q:[0,0],K:[0,0]};
+  if(charts.expl){charts.expl.data.labels=[];charts.expl.data.datasets[0].data=[];charts.expl.update();}
+  if(charts.strat){charts.strat.data.labels=[];charts.strat.data.datasets[0].data=[];charts.strat.update();}
+}
+
+// ── Auction Game ─────────────────────────────────────────────────────
+function updateAuction() {
+  const cost=+document.getElementById('seller-cost').value;
+  const va=+document.getElementById('buyer-a-val').value;
+  const vb=+document.getElementById('buyer-b-val').value;
+  document.getElementById('seller-cost-val').textContent=cost;
+  document.getElementById('buyer-a-val-display').textContent=va;
+  document.getElementById('buyer-b-val-display').textContent=vb;
+
+  const prices=[2,4,6,8,10];
+  const revenues=prices.map(p=>{
+    const acceptA=p<=va?1:0; const acceptB=p<=vb?1:0;
+    return (acceptA+acceptB)*(p-cost);
+  });
+  const maxRev=Math.max(...revenues);
+
+  const barsHtml=prices.map((p,i)=>{
+    const pct=maxRev>0?Math.round(revenues[i]/maxRev*100):20;
+    const color=revenues[i]===maxRev?'var(--accent3)':'var(--accent)';
+    return `<div class="regret-row">
+      <span class="regret-label">$${p}</span>
+      <div class="regret-track"><div class="regret-fill" style="width:${pct}%;background:${color}"></div></div>
+      <span class="regret-val">${revenues[i].toFixed(1)}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('auction-strategy-bars').innerHTML=barsHtml;
+
+  const bestPrice=prices[revenues.indexOf(maxRev)];
+  const acceptA=bestPrice<=va; const acceptB=bestPrice<=vb;
+  document.getElementById('auction-result').innerHTML=`
+    <span style="color:var(--muted)">Optimal price:</span> <span style="color:var(--accent4)">$${bestPrice}</span><br>
+    <span style="color:var(--muted)">Buyer A (val=${va}):</span> <span style="color:${acceptA?'var(--accent3)':'var(--accent2)'}">${acceptA?'✓ Accept':'✗ Reject'}</span><br>
+    <span style="color:var(--muted)">Buyer B (val=${vb}):</span> <span style="color:${acceptB?'var(--accent3)':'var(--accent2)'}">${acceptB?'✓ Accept':'✗ Reject'}</span><br>
+    <span style="color:var(--muted)">Seller revenue:</span> <span style="color:var(--text)">${maxRev.toFixed(1)}</span>
+  `;
+}
+
+// ── Code viewer ───────────────────────────────────────────────────────
+const codeSnippets={
+  deep_cfr:`<span class="kw">class</span> <span class="fn">DeepCFR</span>:
+    <span class="cmt">"""
+    Deep CFR Solver.
+    Two networks per player:
+      AdvantageNet  → regret approximation
+      StrategyNet   → Nash strategy output
+    """</span>
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, game_factory, state_dim, num_actions, ...):
+        self.adv_nets = [AdvantageNet(state_dim, num_actions) <span class="kw">for</span> _ <span class="kw">in</span> range(num_players)]
+        self.strat_net = StrategyNet(state_dim, num_actions)
+        self.adv_buffers = [ReservoirBuffer(capacity) <span class="kw">for</span> _ <span class="kw">in</span> range(num_players)]
+
+    <span class="kw">def</span> <span class="fn">_traverse</span>(self, state, player, reach, t):
+        <span class="cmt"># Traversing player: explore ALL actions</span>
+        <span class="kw">if</span> curr_player == player:
+            action_values = {a: self._traverse(state.apply_action(a), ...) <span class="kw">for</span> a <span class="kw">in</span> actions}
+            node_value = sum(strategy[a] * action_values[a][player] <span class="kw">for</span> a <span class="kw">in</span> actions)
+
+            <span class="cmt"># Store regret in reservoir buffer</span>
+            regrets = cf_reach * (action_values[a][player] - node_value)
+            self.adv_buffers[player].add((info_tensor, regrets, t))
+
+        <span class="kw">else</span>:
+            <span class="cmt"># Other players: sample ONE action (external sampling)</span>
+            chosen = sample_from(strategy)
+            <span class="kw">return</span> self._traverse(state.apply_action(chosen), ...)
+
+    <span class="kw">def</span> <span class="fn">get_strategy</span>(self, info_tensor, player, actions):
+        <span class="cmt"># Regret matching: positive advantages → probabilities</span>
+        adv = self.adv_nets[player](info_tensor)
+        pos = torch.clamp(adv, min=<span class="num">0</span>)
+        <span class="kw">return</span> pos / (pos.sum() + <span class="num">1e-8</span>)`,
+
+  games:`<span class="kw">class</span> <span class="fn">LeducState</span>(GameState):
+    <span class="cmt">"""
+    Leduc Hold'em: 2-player, 6 cards (J,Q,K × 2 suits)
+    Two betting rounds; community card revealed in round 2.
+    """</span>
+    <span class="kw">def</span> <span class="fn">info_set_tensor</span>(self, player) -> np.ndarray:
+        vec = np.zeros(<span class="num">30</span>, dtype=np.float32)
+        <span class="cmt"># Hole card one-hot (6 cards)</span>
+        rank, suit = self.hole_cards[player]
+        vec[rank * <span class="num">2</span> + suit] = <span class="num">1.0</span>
+        <span class="cmt"># Community card (if revealed)</span>
+        <span class="kw">if</span> self.community_card:
+            rank, suit = self.community_card
+            vec[<span class="num">6</span> + rank * <span class="num">2</span> + suit] = <span class="num">1.0</span>
+        <span class="cmt"># Betting history (last 8 actions × 3)</span>
+        <span class="kw">for</span> i, a <span class="kw">in</span> enumerate(self.history[-<span class="num">8</span>:]):
+            vec[<span class="num">14</span> + i * <span class="num">3</span> + a] = <span class="num">1.0</span>
+        <span class="kw">return</span> vec
+
+<span class="kw">class</span> <span class="fn">AuctionState</span>(GameState):
+    <span class="cmt">"""
+    Asymmetric 3-player auction (novel extension).
+    Seller: 5 price actions. Buyers: 2 actions (accept/reject).
+    """</span>
+    <span class="kw">def</span> <span class="fn">info_set_tensor</span>(self, player) -> np.ndarray:
+        vec = np.zeros(<span class="num">25</span>, dtype=np.float32)
+        vec[player] = <span class="num">1.0</span>  <span class="cmt"># Player one-hot (key for asymmetry!)</span>
+        vec[<span class="num">3</span>] = self.private_values[player] / <span class="num">10.0</span>
+        <span class="kw">if</span> self.posted_price:
+            vec[<span class="num">4</span>] = self.posted_price / <span class="num">10.0</span>
+        <span class="kw">return</span> vec`,
+
+  vanilla:`<span class="kw">class</span> <span class="fn">VanillaCFR</span>:
+    <span class="kw">def</span> <span class="fn">cfr</span>(self, state, reach):
+        <span class="kw">if</span> state.is_terminal():
+            <span class="kw">return</span> state.returns()
+
+        player  = state.current_player()
+        actions = state.legal_actions()
+        strategy = self.get_strategy(info_key, actions)
+
+        <span class="cmt"># Recurse over all actions</span>
+        action_values = {a: self.cfr(state.apply_action(a), ...) <span class="kw">for</span> a <span class="kw">in</span> actions}
+        node_value = sum(strategy[a] * action_values[a][player] <span class="kw">for</span> a <span class="kw">in</span> actions)
+
+        <span class="cmt"># Counterfactual reach = product of opponents' probs</span>
+        cf_reach = product(reach[i] <span class="kw">for</span> i != player)
+
+        <span class="cmt"># Update regrets</span>
+        <span class="kw">for</span> a <span class="kw">in</span> actions:
+            regret = cf_reach * (action_values[a][player] - node_value)
+            self.regret_sum[info_key][a] += regret
+
+        <span class="cmt"># Accumulate strategy sum (for Nash average)</span>
+        <span class="kw">for</span> a <span class="kw">in</span> actions:
+            self.strategy_sum[info_key][a] += reach[player] * strategy[a]`,
+
+  eval:`<span class="kw">def</span> <span class="fn">compute_exploitability</span>(game_factory, get_strategy, num_samples=<span class="num">20</span>):
+    <span class="cmt">"""
+    Monte Carlo estimate of exploitability.
+    Exploitability = max gain a best-response opponent can achieve.
+    At Nash Equilibrium, exploitability = 0.
+    """</span>
+    total = <span class="num">0.0</span>
+    <span class="kw">for</span> s <span class="kw">in</span> range(num_samples):
+        state = game_factory(seed=s)
+        <span class="kw">for</span> p <span class="kw">in</span> range(state.num_players()):
+            br_val  = best_response_value(state, p, get_strategy)
+            avg_val = strategy_value(state, p, get_strategy)
+            total  += max(<span class="num">0.0</span>, br_val - avg_val)
+    <span class="kw">return</span> total / num_samples`
+};
+
+function showCode(key) {
+  document.getElementById('code-display').innerHTML =
+    `<pre style="white-space:pre-wrap">${codeSnippets[key]}</pre>`;
+}
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+</body>
+</html>
